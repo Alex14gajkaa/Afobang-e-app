@@ -305,50 +305,29 @@ export default function AdminPage() {
 
   // Product search/filter
   const [search, setSearch] = useState('');
-  const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
-    // Use onAuthStateChange so we wait for the session to be restored from
-    // cookies before checking auth — getUser() fires too early and sees null.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      (async () => {
-        if (!session) {
-          router.push('/auth');
-          return;
-        }
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.push('/auth'); return; }
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
+      if (!prof || prof.role !== 'admin') { router.push('/'); return; }
 
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', session.user.id)
-          .maybeSingle();
+      const [{ data: ord }, { data: prod }, { data: cust }, { data: cats }] = await Promise.all([
+        supabase.from('orders').select('id, order_number, status, total, created_at, customer_name, customer_phone, delivery_region').order('created_at', { ascending: false }).limit(50),
+        supabase.from('products').select('*').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('id, full_name, email, phone, created_at').order('created_at', { ascending: false }).limit(50),
+        supabase.from('categories').select('id, name, slug').order('name'),
+      ]);
 
-        if (!prof || prof.role !== 'admin') {
-          router.push('/');
-          return;
-        }
-
-        if (dataLoaded) return;
-        setDataLoaded(true);
-
-        const [{ data: ord }, { data: prod }, { data: cust }, { data: cats }] = await Promise.all([
-          supabase.from('orders').select('id, order_number, status, total, created_at, customer_name, customer_phone, delivery_region').order('created_at', { ascending: false }).limit(50),
-          supabase.from('products').select('*').order('created_at', { ascending: false }),
-          supabase.from('profiles').select('id, full_name, email, phone, created_at').order('created_at', { ascending: false }).limit(50),
-          supabase.from('categories').select('id, name, slug').order('name'),
-        ]);
-
-        setOrders((ord as any) || []);
-        setProducts((prod as any) || []);
-        setCustomers((cust as any) || []);
-        setCategories((cats as any) || []);
-        const revenue = (ord || []).filter((o: any) => o.status !== 'cancelled').reduce((s: number, o: any) => s + Number(o.total), 0);
-        setStats({ revenue, orders: (ord || []).length, products: (prod || []).length, customers: (cust || []).length });
-        setLoading(false);
-      })();
-    });
-
-    return () => subscription.unsubscribe();
+      setOrders((ord as any) || []);
+      setProducts((prod as any) || []);
+      setCustomers((cust as any) || []);
+      setCategories((cats as any) || []);
+      const revenue = (ord || []).filter((o: any) => o.status !== 'cancelled').reduce((s: number, o: any) => s + o.total, 0);
+      setStats({ revenue, orders: (ord || []).length, products: (prod || []).length, customers: (cust || []).length });
+      setLoading(false);
+    })();
   }, []);
 
   const updateOrderStatus = async (id: string, status: string) => {
